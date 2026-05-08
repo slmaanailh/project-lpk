@@ -575,7 +575,9 @@ elif menu == "🏭 Produksi":
                     st.balloons()
 
     # ── Riwayat Produksi + Hapus ──────────────────────────
-    with tab2:
+    # ── Riwayat Penjualan + Hapus ─────────────────────────
+with tab2:
+
     penjualan = db_read("""
         SELECT id, tanggal, produk, qty, total
         FROM penjualan
@@ -587,6 +589,7 @@ elif menu == "🏭 Produksi":
         st.info("Belum ada riwayat penjualan")
 
     else:
+
         # =========================
         # FIX DATA AGAR TIDAK ERROR
         # =========================
@@ -603,7 +606,9 @@ elif menu == "🏭 Produksi":
         # =========================
         # TABEL
         # =========================
-        tampil = penjualan[["tanggal", "produk", "qty", "total"]].copy()
+        tampil = penjualan[
+            ["tanggal", "produk", "qty", "total"]
+        ].copy()
 
         tampil.columns = [
             "Tanggal",
@@ -622,6 +627,7 @@ elif menu == "🏭 Produksi":
 
         st.markdown("---")
         st.markdown("#### 🗑️ Hapus Riwayat Penjualan")
+
         st.caption(
             "⚠️ Menghapus data penjualan akan otomatis mengembalikan stok produk."
         )
@@ -647,6 +653,7 @@ elif menu == "🏭 Produksi":
             )
 
         with col2:
+
             st.markdown("<br>", unsafe_allow_html=True)
 
             if st.button(
@@ -681,6 +688,7 @@ elif menu == "🏭 Produksi":
                     st.success(
                         "✅ Data penjualan dihapus & stok dikembalikan!"
                     )
+
                     st.rerun()
 
 # =====================================================
