@@ -178,12 +178,7 @@ hr {
 # =====================================================
 # DATABASE
 # =====================================================
-@st.cache_resource
-def get_conn():
-    conn = sqlite3.connect("banana_crunch.db", check_same_thread=False)
-    return conn
-
-conn = get_conn()
+conn = sqlite3.connect("banana_crunch.db", check_same_thread=False)
 c = conn.cursor()
 
 # =====================================================
@@ -528,7 +523,7 @@ elif menu == "🏭 Produksi":
                     c.execute("UPDATE bahan SET stok = stok - ? WHERE nama = ?", (kebutuhan_b, nama_b))
 
                 c.execute("INSERT INTO produksi(tanggal, jenis, rasa, jumlah) VALUES(?,?,?,?)",
-                          (datetime.now().strftime("%Y-%m-%d"), jenis, rasa, jumlah))
+                          (datetime.now().strftime("%Y-%m-%d"), str(jenis), str(rasa), float(jumlah)))
 
                 nama_produk = f"Keripik {jenis} {rasa}"
                 hasil_produk = int(jumlah * 10)
@@ -639,7 +634,7 @@ elif menu == "🛒 Penjualan":
             with col2:
                 qty = st.number_input("Jumlah (bungkus)", min_value=1, max_value=int(row["stok"]))
 
-            total = qty * row["harga"]
+            total = int(qty) * int(row["harga"])
 
             st.markdown(f"""
             <div style='background:#FFF4E0; border-radius:12px; padding:16px 20px;
@@ -666,7 +661,7 @@ elif menu == "🛒 Penjualan":
                     st.error("❌ Stok tidak mencukupi!")
                 else:
                     c.execute("INSERT INTO penjualan(tanggal, produk, qty, total) VALUES(?,?,?,?)",
-                              (datetime.now().strftime("%Y-%m-%d"), pilih, qty, total))
+                              (datetime.now().strftime("%Y-%m-%d"), str(pilih), int(qty), int(total)))
                     c.execute("UPDATE produk SET stok = stok - ? WHERE nama = ?", (qty, pilih))
                     conn.commit()
                     st.success(f"✅ Penjualan {qty} bungkus {pilih} berhasil! {format_rp(total)}")
@@ -709,7 +704,7 @@ elif menu == "💸 Pengeluaran":
         if st.button("💾 Simpan Pengeluaran", use_container_width=False):
             if nama_keluar.strip() and nominal > 0:
                 c.execute("INSERT INTO pengeluaran(tanggal, nama, kategori, nominal) VALUES(?,?,?,?)",
-                          (tanggal_keluar.strftime("%Y-%m-%d"), nama_keluar, kategori, nominal))
+                          (tanggal_keluar.strftime("%Y-%m-%d"), str(nama_keluar), str(kategori), int(nominal)))
                 conn.commit()
                 st.success(f"✅ Pengeluaran {format_rp(nominal)} disimpan!")
             else:
