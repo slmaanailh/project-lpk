@@ -1,1 +1,4 @@
-# project-lpk
+streamlit
+pandas
+plotly
+openpyxl
