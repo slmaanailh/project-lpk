@@ -512,7 +512,7 @@ elif menu == "🏭 Produksi":
         with col2:
             jumlah = st.number_input("Jumlah Pisang (kg)", min_value=1.0, step=0.5)
 
-        # ── Atur Kebutuhan Bahan ──────────────────────────
+         # ── Atur Kebutuhan Bahan ──────────────────────────
         st.markdown("#### ⚙️ Atur Kebutuhan Bahan")
         st.caption("Nilai default dihitung otomatis dari jumlah pisang. Kamu bisa ubah sesuai kebutuhan.")
 
@@ -556,18 +556,20 @@ elif menu == "🏭 Produksi":
 
         # ── Estimasi Kebutuhan ────────────────────────────
         kebutuhan_list = [
-            (jenis,           jumlah,           "kg"),
-            ("Minyak Goreng", kebutuhan_minyak, "liter"),
-            ("Gas LPG",       kebutuhan_gas,    "tabung"),
-            (nama_bumbu,      kebutuhan_bumbu,  satuan_bumbu),
+            (jenis, jumlah, "kg"),
+            ("Minyak Goreng", round(jumlah * 0.2, 2), "liter"),
         ]
+        if rasa == "Manis":
+            kebutuhan_list.append(("Gula", round(jumlah * 0.05, 2), "kg"))
+        else:
+            kebutuhan_list.append(("Garam", round(jumlah * 0.03, 2), "kg"))
 
         st.markdown("#### 🧮 Estimasi Kebutuhan Bahan")
         for nb, jml, sat in kebutuhan_list:
-            row      = bahan[bahan["nama"] == nb]
+            row = bahan[bahan["nama"] == nb]
             tersedia = row.iloc[0]["stok"] if not row.empty else 0
-            ok_stok  = tersedia >= jml
-            icon     = "✅" if ok_stok else "❌"
+            ok = tersedia >= jml
+            icon = "✅" if ok else "❌"
             st.markdown(f"- {icon} **{nb}**: butuh **{jml} {sat}** | stok: {tersedia} {sat}")
 
         st.markdown(f"#### 🎯 Hasil Produksi: ~**{int(jumlah * 10)} bungkus**")
@@ -630,8 +632,9 @@ elif menu == "🏭 Produksi":
                     st.success(f"✅ Produksi berhasil! {hasil_produk} bungkus {nama_produk} siap dijual.")
                     st.balloons()
 
-    # ── Riwayat Produksi ──────────────────────────────────
+        # ── Riwayat Produksi ──────────────────────────
     with tab2:
+
         produksi = db_read("""
             SELECT id, tanggal, jenis, rasa, jumlah
             FROM produksi
@@ -640,25 +643,67 @@ elif menu == "🏭 Produksi":
 
         if produksi.empty:
             st.info("Belum ada data produksi")
+
         else:
+
             tampil = produksi.copy()
-            tampil.columns = ["ID", "Tanggal", "Jenis Pisang", "Rasa", "Jumlah (kg)"]
-            st.dataframe(tampil, use_container_width=True, hide_index=True)
+
+            tampil.columns = [
+                "ID",
+                "Tanggal",
+                "Jenis Pisang",
+                "Rasa",
+                "Jumlah (kg)"
+            ]
+
+            st.dataframe(
+                tampil,
+                use_container_width=True,
+                hide_index=True
+            )
 
             st.markdown("---")
             st.markdown("#### 🗑️ Hapus Riwayat Produksi")
-            col1, col2 = st.columns([3, 1])
+
+            col1, col2 = st.columns([3,1])
+
             with col1:
+
                 pilihan = produksi.apply(
-                    lambda r: f"[{r['id']}] {r['tanggal']} - {r['jenis']} {r['rasa']} ({r['jumlah']} kg)",
+                    lambda r:
+                    f"[{r['id']}] "
+                    f"{r['tanggal']} - "
+                    f"{r['jenis']} "
+                    f"{r['rasa']} "
+                    f"({r['jumlah']} kg)",
                     axis=1
                 ).tolist()
-                pilih_hapus = st.selectbox("Pilih data produksi", pilihan)
+
+                pilih_hapus = st.selectbox(
+                    "Pilih data produksi",
+                    pilihan
+                )
+
             with col2:
+
                 st.markdown("<br>", unsafe_allow_html=True)
-                if st.button("🗑️ Hapus Produksi", use_container_width=True):
-                    id_hapus = int(pilih_hapus.split("]")[0].replace("[", ""))
-                    ok = db_write([("DELETE FROM produksi WHERE id = ?", (id_hapus,))])
+
+                if st.button(
+                    "🗑️ Hapus Produksi",
+                    use_container_width=True
+                ):
+
+                    id_hapus = int(
+                        pilih_hapus.split("]")[0].replace("[","")
+                    )
+
+                    ok = db_write([
+                        (
+                            "DELETE FROM produksi WHERE id = ?",
+                            (id_hapus,)
+                        )
+                    ])
+
                     if ok:
                         st.success("✅ Data produksi dihapus!")
                         st.rerun()
@@ -793,6 +838,7 @@ elif menu == "🛒 Penjualan":
                     finally:
                         conn_insert.close()
 
+    # ── Riwayat Penjualan + Hapus ─────────────────────────
     with tab2:
         penjualan = db_read("""
             SELECT id, tanggal, produk, qty, total
@@ -860,6 +906,7 @@ elif menu == "💸 Pengeluaran":
             else:
                 st.error("Keterangan dan nominal harus diisi!")
 
+    # ── Riwayat Pengeluaran + Hapus ───────────────────────
     with tab2:
         data_keluar = db_read("""
             SELECT id, tanggal, nama, kategori, nominal
@@ -1012,13 +1059,17 @@ elif menu == "📊 Laporan Bulanan":
     </div>
     """, unsafe_allow_html=True)
 
+    # ==========================================
+    # FITUR EKSPOR DATA (UNTUK STREAMLIT CLOUD)
+    # ==========================================
     st.divider()
     st.markdown("### 📥 Ekspor Laporan Bulanan")
-
+    
     col_dl1, col_dl2 = st.columns(2)
-
+    
     with col_dl1:
         if not penjualan_b.empty:
+            # Mengubah dataframe pandas menjadi format CSV
             csv_penjualan = tampil.to_csv(index=False).encode('utf-8')
             st.download_button(
                 label="📥 Unduh Data Penjualan (CSV)",
@@ -1038,6 +1089,7 @@ elif menu == "📊 Laporan Bulanan":
 
     with col_dl2:
         if not pengeluaran_b.empty:
+            # Mengubah dataframe pandas menjadi format CSV
             csv_pengeluaran = tampil_k.to_csv(index=False).encode('utf-8')
             st.download_button(
                 label="📥 Unduh Data Pengeluaran (CSV)",
