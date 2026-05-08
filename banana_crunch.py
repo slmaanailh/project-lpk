@@ -3,6 +3,7 @@ import sqlite3
 import pandas as pd
 from datetime import datetime
 import calendar
+import os
 
 # =====================================================
 # CONFIG
@@ -167,8 +168,6 @@ hr {
 # =====================================================
 # DATABASE
 # =====================================================
-import os
-
 _dir = os.path.dirname(os.path.abspath(__file__)) if os.path.dirname(os.path.abspath(__file__)) else "/tmp"
 DB_PATH = os.path.join(_dir, "banana_crunch.db")
 
@@ -244,7 +243,6 @@ except Exception:
 
 # =====================================================
 # HELPERS: DB READ / WRITE
-# (harus didefinisikan sebelum SEED DATA)
 # =====================================================
 def db_write(queries_params):
     fresh = get_db()
@@ -514,29 +512,74 @@ elif menu == "🏭 Produksi":
         with col2:
             jumlah = st.number_input("Jumlah Pisang (kg)", min_value=1.0, step=0.5)
 
+        # ── Atur Kebutuhan Bahan ──────────────────────────
+        st.markdown("#### ⚙️ Atur Kebutuhan Bahan")
+        st.caption("Nilai default dihitung otomatis dari jumlah pisang. Kamu bisa ubah sesuai kebutuhan.")
+
+        col_a, col_b = st.columns(2)
+        with col_a:
+            kebutuhan_minyak = st.number_input(
+                "🫙 Minyak Goreng (liter)",
+                min_value=0.0,
+                value=round(jumlah * 0.2, 2),
+                step=0.1,
+                key="input_minyak"
+            )
+            kebutuhan_gas = st.number_input(
+                "🔥 Gas LPG (tabung)",
+                min_value=0.0,
+                value=round(jumlah * 0.05, 2),
+                step=0.1,
+                key="input_gas"
+            )
+        with col_b:
+            if rasa == "Manis":
+                kebutuhan_bumbu = st.number_input(
+                    "🍬 Gula (kg)",
+                    min_value=0.0,
+                    value=round(jumlah * 0.05, 2),
+                    step=0.01,
+                    key="input_bumbu"
+                )
+                nama_bumbu   = "Gula"
+                satuan_bumbu = "kg"
+            else:
+                kebutuhan_bumbu = st.number_input(
+                    "🧂 Garam (kg)",
+                    min_value=0.0,
+                    value=round(jumlah * 0.03, 2),
+                    step=0.01,
+                    key="input_bumbu"
+                )
+                nama_bumbu   = "Garam"
+                satuan_bumbu = "kg"
+
+        # ── Estimasi Kebutuhan ────────────────────────────
         kebutuhan_list = [
-            (jenis, jumlah, "kg"),
-            ("Minyak Goreng", round(jumlah * 0.2, 2), "liter"),
+            (jenis,           jumlah,           "kg"),
+            ("Minyak Goreng", kebutuhan_minyak, "liter"),
+            ("Gas LPG",       kebutuhan_gas,    "tabung"),
+            (nama_bumbu,      kebutuhan_bumbu,  satuan_bumbu),
         ]
-        if rasa == "Manis":
-            kebutuhan_list.append(("Gula", round(jumlah * 0.05, 2), "kg"))
-        else:
-            kebutuhan_list.append(("Garam", round(jumlah * 0.03, 2), "kg"))
 
         st.markdown("#### 🧮 Estimasi Kebutuhan Bahan")
         for nb, jml, sat in kebutuhan_list:
-            row = bahan[bahan["nama"] == nb]
+            row      = bahan[bahan["nama"] == nb]
             tersedia = row.iloc[0]["stok"] if not row.empty else 0
-            ok = tersedia >= jml
-            icon = "✅" if ok else "❌"
+            ok_stok  = tersedia >= jml
+            icon     = "✅" if ok_stok else "❌"
             st.markdown(f"- {icon} **{nb}**: butuh **{jml} {sat}** | stok: {tersedia} {sat}")
 
         st.markdown(f"#### 🎯 Hasil Produksi: ~**{int(jumlah * 10)} bungkus**")
 
+        # ── Tombol Mulai Produksi ─────────────────────────
         if st.button("🚀 Mulai Produksi", use_container_width=False):
-            kebutuhan = [(jenis, jumlah), ("Minyak Goreng", jumlah * 0.2)]
-            kebutuhan.append(("Gula" if rasa == "Manis" else "Garam",
-                              jumlah * 0.05 if rasa == "Manis" else jumlah * 0.03))
+            kebutuhan = [
+                (jenis,           jumlah),
+                ("Minyak Goreng", kebutuhan_minyak),
+                ("Gas LPG",       kebutuhan_gas),
+                (nama_bumbu,      kebutuhan_bumbu),
+            ]
 
             cukup = True
             for nama_b, kebutuhan_b in kebutuhan:
@@ -554,29 +597,41 @@ elif menu == "🏭 Produksi":
 
                 queries = []
                 for nama_b, kebutuhan_b in kebutuhan:
-                    queries.append(("UPDATE bahan SET stok = stok - ? WHERE nama = ?", (float(kebutuhan_b), str(nama_b))))
-                queries.append(("INSERT INTO produksi(tanggal, jenis, rasa, jumlah) VALUES(?,?,?,?)",
-                                (tanggal_prod, str(jenis), str(rasa), float(jumlah))))
+                    if kebutuhan_b > 0:
+                        queries.append((
+                            "UPDATE bahan SET stok = stok - ? WHERE nama = ?",
+                            (float(kebutuhan_b), str(nama_b))
+                        ))
+
+                queries.append((
+                    "INSERT INTO produksi(tanggal, jenis, rasa, jumlah) VALUES(?,?,?,?)",
+                    (tanggal_prod, str(jenis), str(rasa), float(jumlah))
+                ))
 
                 fresh_check = get_db()
-                cek_p = fresh_check.execute("SELECT id FROM produk WHERE nama = ?", (nama_produk,)).fetchone()
+                cek_p = fresh_check.execute(
+                    "SELECT id FROM produk WHERE nama = ?", (nama_produk,)
+                ).fetchone()
                 fresh_check.close()
 
                 if cek_p is None:
-                    queries.append(("INSERT INTO produk(nama, jenis, rasa, stok, harga) VALUES(?,?,?,?,?)",
-                                    (str(nama_produk), str(jenis), str(rasa), hasil_produk, harga)))
+                    queries.append((
+                        "INSERT INTO produk(nama, jenis, rasa, stok, harga) VALUES(?,?,?,?,?)",
+                        (str(nama_produk), str(jenis), str(rasa), hasil_produk, harga)
+                    ))
                 else:
-                    queries.append(("UPDATE produk SET stok = stok + ? WHERE nama = ?",
-                                    (hasil_produk, str(nama_produk))))
+                    queries.append((
+                        "UPDATE produk SET stok = stok + ? WHERE nama = ?",
+                        (hasil_produk, str(nama_produk))
+                    ))
 
                 ok = db_write(queries)
                 if ok:
                     st.success(f"✅ Produksi berhasil! {hasil_produk} bungkus {nama_produk} siap dijual.")
                     st.balloons()
 
-        # ── Riwayat Produksi ──────────────────────────
+    # ── Riwayat Produksi ──────────────────────────────────
     with tab2:
-
         produksi = db_read("""
             SELECT id, tanggal, jenis, rasa, jumlah
             FROM produksi
@@ -585,70 +640,29 @@ elif menu == "🏭 Produksi":
 
         if produksi.empty:
             st.info("Belum ada data produksi")
-
         else:
-
             tampil = produksi.copy()
-
-            tampil.columns = [
-                "ID",
-                "Tanggal",
-                "Jenis Pisang",
-                "Rasa",
-                "Jumlah (kg)"
-            ]
-
-            st.dataframe(
-                tampil,
-                use_container_width=True,
-                hide_index=True
-            )
+            tampil.columns = ["ID", "Tanggal", "Jenis Pisang", "Rasa", "Jumlah (kg)"]
+            st.dataframe(tampil, use_container_width=True, hide_index=True)
 
             st.markdown("---")
             st.markdown("#### 🗑️ Hapus Riwayat Produksi")
-
-            col1, col2 = st.columns([3,1])
-
+            col1, col2 = st.columns([3, 1])
             with col1:
-
                 pilihan = produksi.apply(
-                    lambda r:
-                    f"[{r['id']}] "
-                    f"{r['tanggal']} - "
-                    f"{r['jenis']} "
-                    f"{r['rasa']} "
-                    f"({r['jumlah']} kg)",
+                    lambda r: f"[{r['id']}] {r['tanggal']} - {r['jenis']} {r['rasa']} ({r['jumlah']} kg)",
                     axis=1
                 ).tolist()
-
-                pilih_hapus = st.selectbox(
-                    "Pilih data produksi",
-                    pilihan
-                )
-
+                pilih_hapus = st.selectbox("Pilih data produksi", pilihan)
             with col2:
-
                 st.markdown("<br>", unsafe_allow_html=True)
-
-                if st.button(
-                    "🗑️ Hapus Produksi",
-                    use_container_width=True
-                ):
-
-                    id_hapus = int(
-                        pilih_hapus.split("]")[0].replace("[","")
-                    )
-
-                    ok = db_write([
-                        (
-                            "DELETE FROM produksi WHERE id = ?",
-                            (id_hapus,)
-                        )
-                    ])
-
+                if st.button("🗑️ Hapus Produksi", use_container_width=True):
+                    id_hapus = int(pilih_hapus.split("]")[0].replace("[", ""))
+                    ok = db_write([("DELETE FROM produksi WHERE id = ?", (id_hapus,))])
                     if ok:
                         st.success("✅ Data produksi dihapus!")
                         st.rerun()
+
 # =====================================================
 # PRODUK JADI
 # =====================================================
@@ -779,7 +793,6 @@ elif menu == "🛒 Penjualan":
                     finally:
                         conn_insert.close()
 
-    # ── Riwayat Penjualan + Hapus ─────────────────────────
     with tab2:
         penjualan = db_read("""
             SELECT id, tanggal, produk, qty, total
@@ -847,7 +860,6 @@ elif menu == "💸 Pengeluaran":
             else:
                 st.error("Keterangan dan nominal harus diisi!")
 
-    # ── Riwayat Pengeluaran + Hapus ───────────────────────
     with tab2:
         data_keluar = db_read("""
             SELECT id, tanggal, nama, kategori, nominal
@@ -1000,6 +1012,49 @@ elif menu == "📊 Laporan Bulanan":
     </div>
     """, unsafe_allow_html=True)
 
+    st.divider()
+    st.markdown("### 📥 Ekspor Laporan Bulanan")
+
+    col_dl1, col_dl2 = st.columns(2)
+
+    with col_dl1:
+        if not penjualan_b.empty:
+            csv_penjualan = tampil.to_csv(index=False).encode('utf-8')
+            st.download_button(
+                label="📥 Unduh Data Penjualan (CSV)",
+                data=csv_penjualan,
+                file_name=f"Laporan_Penjualan_{prefix}.csv",
+                mime="text/csv",
+                use_container_width=True
+            )
+        else:
+            st.download_button(
+                label="📥 Unduh Data Penjualan (CSV)",
+                data="",
+                file_name=f"Laporan_Penjualan_{prefix}.csv",
+                disabled=True,
+                use_container_width=True
+            )
+
+    with col_dl2:
+        if not pengeluaran_b.empty:
+            csv_pengeluaran = tampil_k.to_csv(index=False).encode('utf-8')
+            st.download_button(
+                label="📥 Unduh Data Pengeluaran (CSV)",
+                data=csv_pengeluaran,
+                file_name=f"Laporan_Pengeluaran_{prefix}.csv",
+                mime="text/csv",
+                use_container_width=True
+            )
+        else:
+            st.download_button(
+                label="📥 Unduh Data Pengeluaran (CSV)",
+                data="",
+                file_name=f"Laporan_Pengeluaran_{prefix}.csv",
+                disabled=True,
+                use_container_width=True
+            )
+
 # =====================================================
 # PROFIL UMKM
 # =====================================================
@@ -1017,7 +1072,7 @@ elif menu == "👤 Profil UMKM":
             <p style='color:#8B6A50; font-size:14px; margin:0;'>UMKM Keripik Pisang</p>
             <div style='margin:16px 0;'>
                 <span style='background:#FFF4E0; color:#E8A020; padding:4px 12px;
-                             border-radius:20px; font-size:12px; font-weight:600;'>
+                              border-radius:20px; font-size:12px; font-weight:600;'>
                     ✅ Aktif Beroperasi
                 </span>
             </div>
