@@ -253,6 +253,17 @@ if cek["jumlah"][0] == 0:
     conn.commit()
 
 # =====================================================
+# FIX DATA LAMA: update total=0 di penjualan
+# =====================================================
+rows_nol = conn.execute("SELECT id, produk, qty FROM penjualan WHERE total = 0 OR total IS NULL").fetchall()
+for rid, nama_prod, qty_prod in rows_nol:
+    harga_fix = conn.execute("SELECT harga FROM produk WHERE nama = ?", (nama_prod,)).fetchone()
+    if harga_fix:
+        total_fix = int(qty_prod) * int(harga_fix[0])
+        conn.execute("UPDATE penjualan SET total = ? WHERE id = ?", (total_fix, rid))
+conn.commit()
+
+# =====================================================
 # LOGIN
 # =====================================================
 if "login" not in st.session_state:
@@ -660,11 +671,16 @@ elif menu == "🛒 Penjualan":
                 if qty > row["stok"]:
                     st.error("❌ Stok tidak mencukupi!")
                 else:
+                    harga_db = conn.execute(
+                        "SELECT harga FROM produk WHERE nama = ?", (str(pilih),)
+                    ).fetchone()
+                    harga_bersih = int(harga_db[0]) if harga_db else 0
+                    total_bersih = int(qty) * harga_bersih
                     c.execute("INSERT INTO penjualan(tanggal, produk, qty, total) VALUES(?,?,?,?)",
-                              (datetime.now().strftime("%Y-%m-%d"), str(pilih), int(qty), int(total)))
-                    c.execute("UPDATE produk SET stok = stok - ? WHERE nama = ?", (qty, pilih))
+                              (datetime.now().strftime("%Y-%m-%d"), str(pilih), int(qty), total_bersih))
+                    c.execute("UPDATE produk SET stok = stok - ? WHERE nama = ?", (int(qty), str(pilih)))
                     conn.commit()
-                    st.success(f"✅ Penjualan {qty} bungkus {pilih} berhasil! {format_rp(total)}")
+                    st.success(f"✅ Penjualan {int(qty)} bungkus {pilih} berhasil! {format_rp(total_bersih)}")
                     st.balloons()
 
     with tab2:
