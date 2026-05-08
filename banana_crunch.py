@@ -574,123 +574,81 @@ elif menu == "🏭 Produksi":
                     st.success(f"✅ Produksi berhasil! {hasil_produk} bungkus {nama_produk} siap dijual.")
                     st.balloons()
 
-    # ── Riwayat Produksi + Hapus ──────────────────────────
-    # ── Riwayat Penjualan + Hapus ─────────────────────────
-with tab2:
+        # ── Riwayat Produksi ──────────────────────────
+    with tab2:
 
-    penjualan = db_read("""
-        SELECT id, tanggal, produk, qty, total
-        FROM penjualan
-        ORDER BY id DESC
-        LIMIT 100
-    """)
+        produksi = db_read("""
+            SELECT id, tanggal, jenis, rasa, jumlah
+            FROM produksi
+            ORDER BY id DESC
+        """)
 
-    if penjualan.empty:
-        st.info("Belum ada riwayat penjualan")
+        if produksi.empty:
+            st.info("Belum ada data produksi")
 
-    else:
+        else:
 
-        # =========================
-        # FIX DATA AGAR TIDAK ERROR
-        # =========================
-        penjualan["qty"] = pd.to_numeric(
-            penjualan["qty"],
-            errors="coerce"
-        ).fillna(0)
+            tampil = produksi.copy()
 
-        penjualan["total"] = pd.to_numeric(
-            penjualan["total"],
-            errors="coerce"
-        ).fillna(0)
+            tampil.columns = [
+                "ID",
+                "Tanggal",
+                "Jenis Pisang",
+                "Rasa",
+                "Jumlah (kg)"
+            ]
 
-        # =========================
-        # TABEL
-        # =========================
-        tampil = penjualan[
-            ["tanggal", "produk", "qty", "total"]
-        ].copy()
-
-        tampil.columns = [
-            "Tanggal",
-            "Produk",
-            "Qty",
-            "Total (Rp)"
-        ]
-
-        tampil["Total (Rp)"] = tampil["Total (Rp)"].apply(format_rp)
-
-        st.dataframe(
-            tampil,
-            use_container_width=True,
-            hide_index=True
-        )
-
-        st.markdown("---")
-        st.markdown("#### 🗑️ Hapus Riwayat Penjualan")
-
-        st.caption(
-            "⚠️ Menghapus data penjualan akan otomatis mengembalikan stok produk."
-        )
-
-        col1, col2 = st.columns([3, 1])
-
-        with col1:
-
-            pilihan_jual = penjualan.apply(
-                lambda r:
-                    f"[{int(r['id'])}] "
-                    f"{r['tanggal']} — "
-                    f"{r['produk']} "
-                    f"x{int(r['qty'])} "
-                    f"({format_rp(r['total'])})",
-                axis=1
-            ).tolist()
-
-            hapus_jual = st.selectbox(
-                "Pilih data yang ingin dihapus",
-                pilihan_jual,
-                key="hapus_penjualan"
+            st.dataframe(
+                tampil,
+                use_container_width=True,
+                hide_index=True
             )
 
-        with col2:
+            st.markdown("---")
+            st.markdown("#### 🗑️ Hapus Riwayat Produksi")
 
-            st.markdown("<br>", unsafe_allow_html=True)
+            col1, col2 = st.columns([3,1])
 
-            if st.button(
-                "🗑️ Hapus",
-                key="btn_hapus_penjualan",
-                use_container_width=True
-            ):
+            with col1:
 
-                id_hapus = int(
-                    hapus_jual.split("]")[0].replace("[", "")
+                pilihan = produksi.apply(
+                    lambda r:
+                    f"[{r['id']}] "
+                    f"{r['tanggal']} - "
+                    f"{r['jenis']} "
+                    f"{r['rasa']} "
+                    f"({r['jumlah']} kg)",
+                    axis=1
+                ).tolist()
+
+                pilih_hapus = st.selectbox(
+                    "Pilih data produksi",
+                    pilihan
                 )
 
-                baris = penjualan[
-                    penjualan["id"] == id_hapus
-                ].iloc[0]
+            with col2:
 
-                ok = db_write([
-                    (
-                        "UPDATE produk SET stok = stok + ? WHERE nama = ?",
+                st.markdown("<br>", unsafe_allow_html=True)
+
+                if st.button(
+                    "🗑️ Hapus Produksi",
+                    use_container_width=True
+                ):
+
+                    id_hapus = int(
+                        pilih_hapus.split("]")[0].replace("[","")
+                    )
+
+                    ok = db_write([
                         (
-                            int(baris["qty"]),
-                            str(baris["produk"])
+                            "DELETE FROM produksi WHERE id = ?",
+                            (id_hapus,)
                         )
-                    ),
-                    (
-                        "DELETE FROM penjualan WHERE id = ?",
-                        (id_hapus,)
-                    )
-                ])
+                    ])
 
-                if ok:
-                    st.success(
-                        "✅ Data penjualan dihapus & stok dikembalikan!"
-                    )
-
-                    st.rerun()
-
+                    if ok:
+                        st.success("✅ Data produksi dihapus!")
+                        st.rerun()
 # =====================================================
 # PRODUK JADI
 # =====================================================
