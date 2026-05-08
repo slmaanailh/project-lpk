@@ -600,7 +600,7 @@ elif menu == "📦 Produk Jadi":
 
         tabel = produk[["nama", "jenis", "rasa", "stok", "harga"]].copy()
         tabel.columns = ["Nama Produk", "Jenis", "Rasa", "Stok (bungkus)", "Harga (Rp)"]
-        tabel["Harga (Rp)"] = tabel["Harga (Rp)"].apply(lambda x: f"Rp {x:,.0f}")
+        tabel["Harga (Rp)"] = pd.to_numeric(tabel["Harga (Rp)"], errors="coerce").fillna(0).apply(lambda x: f"Rp {x:,.0f}")
         st.dataframe(tabel, use_container_width=True, hide_index=True)
 
         st.divider()
@@ -682,6 +682,7 @@ elif menu == "🛒 Penjualan":
         if penjualan.empty:
             st.info("Belum ada riwayat penjualan")
         else:
+            penjualan["Total (Rp)"] = pd.to_numeric(penjualan["Total (Rp)"], errors="coerce").fillna(0)
             penjualan["Total (Rp)"] = penjualan["Total (Rp)"].apply(lambda x: f"Rp {x:,.0f}")
             st.dataframe(penjualan, use_container_width=True, hide_index=True)
 
@@ -736,7 +737,7 @@ elif menu == "💸 Pengeluaran":
             st.dataframe(summary, use_container_width=True, hide_index=True)
 
             st.divider()
-            data_keluar["Nominal (Rp)"] = data_keluar["Nominal (Rp)"].apply(lambda x: f"Rp {x:,.0f}")
+            data_keluar["Nominal (Rp)"] = pd.to_numeric(data_keluar["Nominal (Rp)"], errors="coerce").fillna(0).apply(lambda x: f"Rp {x:,.0f}")
             st.dataframe(data_keluar, use_container_width=True, hide_index=True)
 
 # =====================================================
