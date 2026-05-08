@@ -178,7 +178,14 @@ hr {
 # =====================================================
 # DATABASE
 # =====================================================
-conn = sqlite3.connect("banana_crunch.db", check_same_thread=False)
+import os
+
+DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "banana_crunch.db")
+
+if "conn" not in st.session_state:
+    st.session_state.conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+
+conn = st.session_state.conn
 c = conn.cursor()
 
 # =====================================================
@@ -235,6 +242,13 @@ CREATE TABLE IF NOT EXISTS pengeluaran(
 """)
 
 conn.commit()
+
+# Migration: tambah kolom kategori kalau belum ada (untuk database lama)
+try:
+    c.execute("ALTER TABLE pengeluaran ADD COLUMN kategori TEXT DEFAULT 'Lainnya'")
+    conn.commit()
+except Exception:
+    pass  # kolom sudah ada, skip
 
 # =====================================================
 # SEED DATA
@@ -338,6 +352,25 @@ def get_bulan_list():
     bulan_names = ["Januari","Februari","Maret","April","Mei","Juni",
                    "Juli","Agustus","September","Oktober","November","Desember"]
     return bulan_names
+
+
+# =====================================================
+# HELPER: WRITE KE DATABASE
+# =====================================================
+def db_write(queries_params):
+    """Tulis ke DB dengan koneksi fresh, lalu reset koneksi utama."""
+    fresh = sqlite3.connect(DB_PATH, check_same_thread=False)
+    try:
+        for q, p in queries_params:
+            fresh.execute(q, p)
+        fresh.commit()
+        st.session_state.conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+        return True
+    except Exception as e:
+        st.error(f"Database error: {e}")
+        return False
+    finally:
+        fresh.close()
 
 # =====================================================
 # DASHBOARD
@@ -449,13 +482,11 @@ elif menu == "🧪 Bahan Baku":
                     # Cek apakah bahan sudah ada
                     existing = pd.read_sql(f"SELECT * FROM bahan WHERE LOWER(nama) = LOWER('{nama_bahan}')", conn)
                     if not existing.empty:
-                        c.execute("UPDATE bahan SET stok = stok + ? WHERE LOWER(nama) = LOWER(?)", (stok_bahan, nama_bahan))
-                        conn.commit()
-                        st.success(f"✅ Stok {nama_bahan} diperbarui!")
+                        ok = db_write([("UPDATE bahan SET stok = stok + ? WHERE LOWER(nama) = LOWER(?)", (float(stok_bahan), str(nama_bahan)))])
+                        if ok: st.success(f"✅ Stok {nama_bahan} diperbarui!")
                     else:
-                        c.execute("INSERT INTO bahan(nama, stok, satuan) VALUES(?,?,?)", (nama_bahan, stok_bahan, satuan))
-                        conn.commit()
-                        st.success(f"✅ Bahan '{nama_bahan}' berhasil ditambahkan!")
+                        ok = db_write([("INSERT INTO bahan(nama, stok, satuan) VALUES(?,?,?)", (str(nama_bahan), float(stok_bahan), str(satuan)))])
+                        if ok: st.success(f"✅ Bahan '{nama_bahan}' berhasil ditambahkan!")
                 else:
                     st.error("Nama bahan tidak boleh kosong!")
 
@@ -473,10 +504,10 @@ elif menu == "🧪 Bahan Baku":
         with col2:
             st.markdown("<br>", unsafe_allow_html=True)
             if not all_bahan.empty and st.button("🗑️ Hapus", use_container_width=True):
-                c.execute("DELETE FROM bahan WHERE nama = ?", (pilih_hapus,))
-                conn.commit()
-                st.success(f"Bahan '{pilih_hapus}' dihapus!")
-                st.rerun()
+                ok = db_write([("DELETE FROM bahan WHERE nama = ?", (str(pilih_hapus),))])
+                if ok:
+                    st.success(f"Bahan '{pilih_hapus}' dihapus!")
+                    st.rerun()
 
 # =====================================================
 # PRODUKSI
@@ -530,26 +561,33 @@ elif menu == "🏭 Produksi":
                     break
 
             if cukup:
-                for nama_b, kebutuhan_b in kebutuhan:
-                    c.execute("UPDATE bahan SET stok = stok - ? WHERE nama = ?", (kebutuhan_b, nama_b))
-
-                c.execute("INSERT INTO produksi(tanggal, jenis, rasa, jumlah) VALUES(?,?,?,?)",
-                          (datetime.now().strftime("%Y-%m-%d"), str(jenis), str(rasa), float(jumlah)))
-
                 nama_produk = f"Keripik {jenis} {rasa}"
                 hasil_produk = int(jumlah * 10)
                 harga = 15000 if jenis == "Pisang Raja" else 12000
+                tanggal_prod = datetime.now().strftime("%Y-%m-%d")
 
-                cek_produk = pd.read_sql(f"SELECT * FROM produk WHERE nama = '{nama_produk}'", conn)
-                if cek_produk.empty:
-                    c.execute("INSERT INTO produk(nama, jenis, rasa, stok, harga) VALUES(?,?,?,?,?)",
-                              (nama_produk, jenis, rasa, hasil_produk, harga))
+                queries = []
+                for nama_b, kebutuhan_b in kebutuhan:
+                    queries.append(("UPDATE bahan SET stok = stok - ? WHERE nama = ?", (float(kebutuhan_b), str(nama_b))))
+                queries.append(("INSERT INTO produksi(tanggal, jenis, rasa, jumlah) VALUES(?,?,?,?)",
+                                (tanggal_prod, str(jenis), str(rasa), float(jumlah))))
+
+                # Cek produk langsung dari DB
+                fresh_check = sqlite3.connect(DB_PATH, check_same_thread=False)
+                cek_p = fresh_check.execute("SELECT id FROM produk WHERE nama = ?", (nama_produk,)).fetchone()
+                fresh_check.close()
+
+                if cek_p is None:
+                    queries.append(("INSERT INTO produk(nama, jenis, rasa, stok, harga) VALUES(?,?,?,?,?)",
+                                    (str(nama_produk), str(jenis), str(rasa), hasil_produk, harga)))
                 else:
-                    c.execute("UPDATE produk SET stok = stok + ? WHERE nama = ?", (hasil_produk, nama_produk))
+                    queries.append(("UPDATE produk SET stok = stok + ? WHERE nama = ?",
+                                    (hasil_produk, str(nama_produk))))
 
-                conn.commit()
-                st.success(f"✅ Produksi berhasil! {hasil_produk} bungkus {nama_produk} siap dijual.")
-                st.balloons()
+                ok = db_write(queries)
+                if ok:
+                    st.success(f"✅ Produksi berhasil! {hasil_produk} bungkus {nama_produk} siap dijual.")
+                    st.balloons()
 
     with tab2:
         riwayat = pd.read_sql("""
@@ -619,10 +657,10 @@ elif menu == "📦 Produk Jadi":
         with col3:
             st.markdown("<br>", unsafe_allow_html=True)
             if st.button("💾 Update Harga"):
-                c.execute("UPDATE produk SET harga = ? WHERE nama = ?", (harga_baru, produk_pilih))
-                conn.commit()
-                st.success(f"✅ Harga {produk_pilih} diperbarui!")
-                st.rerun()
+                ok = db_write([("UPDATE produk SET harga = ? WHERE nama = ?", (int(harga_baru), str(produk_pilih)))])
+                if ok:
+                    st.success(f"✅ Harga {produk_pilih} diperbarui!")
+                    st.rerun()
 
 # =====================================================
 # PENJUALAN
@@ -671,17 +709,31 @@ elif menu == "🛒 Penjualan":
                 if qty > row["stok"]:
                     st.error("❌ Stok tidak mencukupi!")
                 else:
-                    harga_db = conn.execute(
-                        "SELECT harga FROM produk WHERE nama = ?", (str(pilih),)
-                    ).fetchone()
-                    harga_bersih = int(harga_db[0]) if harga_db else 0
-                    total_bersih = int(qty) * harga_bersih
-                    c.execute("INSERT INTO penjualan(tanggal, produk, qty, total) VALUES(?,?,?,?)",
-                              (datetime.now().strftime("%Y-%m-%d"), str(pilih), int(qty), total_bersih))
-                    c.execute("UPDATE produk SET stok = stok - ? WHERE nama = ?", (int(qty), str(pilih)))
-                    conn.commit()
-                    st.success(f"✅ Penjualan {int(qty)} bungkus {pilih} berhasil! {format_rp(total_bersih)}")
-                    st.balloons()
+                    # Buka koneksi baru khusus untuk insert agar tidak ada masalah cache/state
+                    conn_insert = sqlite3.connect(DB_PATH, check_same_thread=False)
+                    try:
+                        harga_db = conn_insert.execute(
+                            "SELECT harga FROM produk WHERE nama = ?", (str(pilih),)
+                        ).fetchone()
+                        harga_bersih = int(harga_db[0]) if harga_db else 0
+                        total_bersih = int(qty) * harga_bersih
+                        conn_insert.execute(
+                            "INSERT INTO penjualan(tanggal, produk, qty, total) VALUES(?,?,?,?)",
+                            (datetime.now().strftime("%Y-%m-%d"), str(pilih), int(qty), total_bersih)
+                        )
+                        conn_insert.execute(
+                            "UPDATE produk SET stok = stok - ? WHERE nama = ?",
+                            (int(qty), str(pilih))
+                        )
+                        conn_insert.commit()
+                        # Reset koneksi utama agar read fresh
+                        st.session_state.conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+                        st.success(f"✅ Penjualan {int(qty)} bungkus {pilih} berhasil! {format_rp(total_bersih)}")
+                        st.balloons()
+                    except Exception as e:
+                        st.error(f"Error saat menyimpan: {e}")
+                    finally:
+                        conn_insert.close()
 
     with tab2:
         penjualan = pd.read_sql("""
@@ -719,10 +771,10 @@ elif menu == "💸 Pengeluaran":
 
         if st.button("💾 Simpan Pengeluaran", use_container_width=False):
             if nama_keluar.strip() and nominal > 0:
-                c.execute("INSERT INTO pengeluaran(tanggal, nama, kategori, nominal) VALUES(?,?,?,?)",
-                          (tanggal_keluar.strftime("%Y-%m-%d"), str(nama_keluar), str(kategori), int(nominal)))
-                conn.commit()
-                st.success(f"✅ Pengeluaran {format_rp(nominal)} disimpan!")
+                ok = db_write([("INSERT INTO pengeluaran(tanggal, nama, kategori, nominal) VALUES(?,?,?,?)",
+                               (tanggal_keluar.strftime("%Y-%m-%d"), str(nama_keluar), str(kategori), int(nominal)))])
+                if ok:
+                    st.success(f"✅ Pengeluaran {format_rp(nominal)} disimpan!")
             else:
                 st.error("Keterangan dan nominal harus diisi!")
 
