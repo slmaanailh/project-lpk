@@ -28,7 +28,6 @@ html, body, [class*="css"] {
     background: #FBF8F3;
 }
 
-/* Sidebar */
 [data-testid="stSidebar"] {
     background: linear-gradient(180deg, #3B2314 0%, #5C3320 100%);
     border-right: none;
@@ -50,12 +49,10 @@ html, body, [class*="css"] {
     color: #C4A882 !important;
 }
 
-/* Headings */
 h1 { color: #3B2314 !important; font-weight: 700 !important; }
 h2 { color: #5C3320 !important; font-weight: 600 !important; }
 h3 { color: #5C3320 !important; font-weight: 600 !important; }
 
-/* Metric cards */
 [data-testid="metric-container"] {
     background: white;
     border-radius: 16px;
@@ -76,7 +73,6 @@ h3 { color: #5C3320 !important; font-weight: 600 !important; }
     color: #3B2314;
 }
 
-/* Buttons */
 .stButton > button {
     background: #E8A020;
     color: #3B2314;
@@ -101,7 +97,6 @@ h3 { color: #5C3320 !important; font-weight: 600 !important; }
     transform: translateY(0);
 }
 
-/* Inputs */
 .stTextInput > div > div > input,
 .stNumberInput > div > div > input,
 .stSelectbox > div > div {
@@ -110,19 +105,16 @@ h3 { color: #5C3320 !important; font-weight: 600 !important; }
     background: white !important;
 }
 
-/* Dataframe */
 [data-testid="stDataFrame"] {
     border-radius: 12px;
     overflow: hidden;
     border: 1px solid #EDE0D0;
 }
 
-/* Divider */
 hr {
     border-color: #EDE0D0 !important;
 }
 
-/* Alert boxes */
 .stSuccess {
     border-radius: 10px;
     background: #EEF7E8 !important;
@@ -141,20 +133,17 @@ hr {
     border-left: 4px solid #E84040 !important;
 }
 
-/* Info box */
 .stInfo {
     border-radius: 10px;
     background: #FFF4E0 !important;
     border-left: 4px solid #E8A020 !important;
 }
 
-/* Tab styling */
 [data-testid="stTab"] {
     font-weight: 600;
     color: #8B6A50;
 }
 
-/* Card custom */
 .kpi-card {
     background: white;
     border-radius: 16px;
@@ -180,12 +169,16 @@ hr {
 # =====================================================
 import os
 
-DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "banana_crunch.db")
+_dir = os.path.dirname(os.path.abspath(__file__)) if os.path.dirname(os.path.abspath(__file__)) else "/tmp"
+DB_PATH = os.path.join(_dir, "banana_crunch.db")
 
-if "conn" not in st.session_state:
-    st.session_state.conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+def get_db():
+    db = sqlite3.connect(DB_PATH, check_same_thread=False)
+    db.execute("PRAGMA journal_mode=WAL")
+    db.execute("PRAGMA synchronous=NORMAL")
+    return db
 
-conn = st.session_state.conn
+conn = get_db()
 c = conn.cursor()
 
 # =====================================================
@@ -243,17 +236,41 @@ CREATE TABLE IF NOT EXISTS pengeluaran(
 
 conn.commit()
 
-# Migration: tambah kolom kategori kalau belum ada (untuk database lama)
 try:
     c.execute("ALTER TABLE pengeluaran ADD COLUMN kategori TEXT DEFAULT 'Lainnya'")
     conn.commit()
 except Exception:
-    pass  # kolom sudah ada, skip
+    pass
+
+# =====================================================
+# HELPERS: DB READ / WRITE
+# (harus didefinisikan sebelum SEED DATA)
+# =====================================================
+def db_write(queries_params):
+    fresh = get_db()
+    try:
+        for q, p in queries_params:
+            fresh.execute(q, p)
+        fresh.commit()
+        return True
+    except Exception as e:
+        st.error(f"Database error: {e}")
+        return False
+    finally:
+        fresh.close()
+
+def db_read(query):
+    fresh = get_db()
+    try:
+        df = pd.read_sql(query, fresh)
+        return df
+    finally:
+        fresh.close()
 
 # =====================================================
 # SEED DATA
 # =====================================================
-cek = pd.read_sql("SELECT COUNT(*) as jumlah FROM bahan", conn)
+cek = db_read("SELECT COUNT(*) as jumlah FROM bahan")
 if cek["jumlah"][0] == 0:
     data_awal = [
         ("Pisang Raja", 50, "kg"),
@@ -267,7 +284,7 @@ if cek["jumlah"][0] == 0:
     conn.commit()
 
 # =====================================================
-# FIX DATA LAMA: update total=0 di penjualan
+# FIX DATA LAMA
 # =====================================================
 rows_nol = conn.execute("SELECT id, produk, qty FROM penjualan WHERE total = 0 OR total IS NULL").fetchall()
 for rid, nama_prod, qty_prod in rows_nol:
@@ -343,34 +360,14 @@ with st.sidebar:
         st.rerun()
 
 # =====================================================
-# HELPERS
+# HELPERS (non-DB)
 # =====================================================
 def format_rp(angka):
     return f"Rp {angka:,.0f}".replace(",", ".")
 
 def get_bulan_list():
-    bulan_names = ["Januari","Februari","Maret","April","Mei","Juni",
-                   "Juli","Agustus","September","Oktober","November","Desember"]
-    return bulan_names
-
-
-# =====================================================
-# HELPER: WRITE KE DATABASE
-# =====================================================
-def db_write(queries_params):
-    """Tulis ke DB dengan koneksi fresh, lalu reset koneksi utama."""
-    fresh = sqlite3.connect(DB_PATH, check_same_thread=False)
-    try:
-        for q, p in queries_params:
-            fresh.execute(q, p)
-        fresh.commit()
-        st.session_state.conn = sqlite3.connect(DB_PATH, check_same_thread=False)
-        return True
-    except Exception as e:
-        st.error(f"Database error: {e}")
-        return False
-    finally:
-        fresh.close()
+    return ["Januari","Februari","Maret","April","Mei","Juni",
+            "Juli","Agustus","September","Oktober","November","Desember"]
 
 # =====================================================
 # DASHBOARD
@@ -379,32 +376,27 @@ if menu == "🏠 Dashboard":
     st.markdown("## 🏠 Dashboard")
     st.markdown(f"<p style='color:#8B6A50; margin-top:-12px;'>Selamat datang kembali! — {datetime.now().strftime('%d %B %Y')}</p>", unsafe_allow_html=True)
 
-    bahan    = pd.read_sql("SELECT * FROM bahan", conn)
-    produk   = pd.read_sql("SELECT * FROM produk", conn)
-    penjualan = pd.read_sql("SELECT * FROM penjualan", conn)
-    pengeluaran = pd.read_sql("SELECT * FROM pengeluaran", conn)
+    bahan       = db_read("SELECT * FROM bahan")
+    produk      = db_read("SELECT * FROM produk")
+    penjualan   = db_read("SELECT * FROM penjualan")
+    pengeluaran = db_read("SELECT * FROM pengeluaran")
 
-    # Hitung bulan ini
     bulan_ini = datetime.now().strftime("%Y-%m")
 
     if not penjualan.empty:
         penjualan["total"] = pd.to_numeric(penjualan["total"], errors="coerce").fillna(0)
-        omzet_total = penjualan["total"].sum()
         omzet_bulan = penjualan[penjualan["tanggal"].str.startswith(bulan_ini)]["total"].sum()
     else:
-        omzet_total = omzet_bulan = 0
+        omzet_bulan = 0
 
     if not pengeluaran.empty:
         pengeluaran["nominal"] = pd.to_numeric(pengeluaran["nominal"], errors="coerce").fillna(0)
-        keluar_total = pengeluaran["nominal"].sum()
         keluar_bulan = pengeluaran[pengeluaran["tanggal"].str.startswith(bulan_ini)]["nominal"].sum()
     else:
-        keluar_total = keluar_bulan = 0
+        keluar_bulan = 0
 
-    laba_total = omzet_total - keluar_total
     laba_bulan = omzet_bulan - keluar_bulan
 
-    # KPI Cards
     col1, col2, col3, col4 = st.columns(4)
     col1.metric("💰 Omzet Bulan Ini", format_rp(omzet_bulan))
     col2.metric("💸 Pengeluaran Bulan Ini", format_rp(keluar_bulan))
@@ -419,8 +411,7 @@ if menu == "🏠 Dashboard":
         st.markdown("### 📈 Tren Penjualan Harian")
         if not penjualan.empty:
             chart_data = penjualan.groupby("tanggal")["total"].sum().reset_index()
-            chart_data = chart_data.sort_values("tanggal")
-            chart_data = chart_data.set_index("tanggal")
+            chart_data = chart_data.sort_values("tanggal").set_index("tanggal")
             st.line_chart(chart_data, use_container_width=True, height=250, color="#E8A020")
         else:
             st.info("Belum ada data penjualan")
@@ -445,13 +436,11 @@ if menu == "🏠 Dashboard":
 
     st.divider()
 
-    # Stok minim
     stok_minim = bahan[bahan["stok"] < 5]
     if not stok_minim.empty:
         st.warning(f"⚠️ **{len(stok_minim)} bahan** hampir habis! Segera lakukan restok.")
         st.dataframe(stok_minim[["nama", "stok", "satuan"]], use_container_width=True, hide_index=True)
 
-    # Penjualan per produk
     if not penjualan.empty:
         st.markdown("### 🏆 Penjualan per Produk")
         per_produk = penjualan.groupby("produk")["total"].sum().reset_index()
@@ -476,11 +465,9 @@ elif menu == "🧪 Bahan Baku":
         with col2:
             satuan = st.selectbox("Satuan", ["kg", "liter", "pcs", "tabung", "gram", "ml"])
             st.markdown("<br>", unsafe_allow_html=True)
-
             if st.button("💾 Simpan Bahan", use_container_width=True):
                 if nama_bahan.strip():
-                    # Cek apakah bahan sudah ada
-                    existing = pd.read_sql(f"SELECT * FROM bahan WHERE LOWER(nama) = LOWER('{nama_bahan}')", conn)
+                    existing = db_read(f"SELECT * FROM bahan WHERE LOWER(nama) = LOWER('{nama_bahan}')")
                     if not existing.empty:
                         ok = db_write([("UPDATE bahan SET stok = stok + ? WHERE LOWER(nama) = LOWER(?)", (float(stok_bahan), str(nama_bahan)))])
                         if ok: st.success(f"✅ Stok {nama_bahan} diperbarui!")
@@ -491,14 +478,14 @@ elif menu == "🧪 Bahan Baku":
                     st.error("Nama bahan tidak boleh kosong!")
 
     with tab1:
-        data = pd.read_sql("SELECT id, nama as 'Nama Bahan', stok as 'Stok', satuan as 'Satuan' FROM bahan", conn)
+        data = db_read("SELECT id, nama as 'Nama Bahan', stok as 'Stok', satuan as 'Satuan' FROM bahan")
         st.dataframe(data, use_container_width=True, hide_index=True)
 
         st.markdown("---")
         st.markdown("#### 🗑️ Hapus Bahan")
         col1, col2 = st.columns([2, 1])
         with col1:
-            all_bahan = pd.read_sql("SELECT * FROM bahan", conn)
+            all_bahan = db_read("SELECT * FROM bahan")
             if not all_bahan.empty:
                 pilih_hapus = st.selectbox("Pilih bahan untuk dihapus", all_bahan["nama"])
         with col2:
@@ -518,7 +505,7 @@ elif menu == "🏭 Produksi":
     tab1, tab2 = st.tabs(["🏭 Proses Produksi", "📜 Riwayat Produksi"])
 
     with tab1:
-        bahan = pd.read_sql("SELECT * FROM bahan", conn)
+        bahan = db_read("SELECT * FROM bahan")
 
         col1, col2 = st.columns(2)
         with col1:
@@ -527,7 +514,6 @@ elif menu == "🏭 Produksi":
         with col2:
             jumlah = st.number_input("Jumlah Pisang (kg)", min_value=1.0, step=0.5)
 
-        # Preview kebutuhan
         kebutuhan_list = [
             (jenis, jumlah, "kg"),
             ("Minyak Goreng", round(jumlah * 0.2, 2), "liter"),
@@ -561,9 +547,9 @@ elif menu == "🏭 Produksi":
                     break
 
             if cukup:
-                nama_produk = f"Keripik {jenis} {rasa}"
+                nama_produk  = f"Keripik {jenis} {rasa}"
                 hasil_produk = int(jumlah * 10)
-                harga = 15000 if jenis == "Pisang Raja" else 12000
+                harga        = 15000 if jenis == "Pisang Raja" else 12000
                 tanggal_prod = datetime.now().strftime("%Y-%m-%d")
 
                 queries = []
@@ -572,8 +558,7 @@ elif menu == "🏭 Produksi":
                 queries.append(("INSERT INTO produksi(tanggal, jenis, rasa, jumlah) VALUES(?,?,?,?)",
                                 (tanggal_prod, str(jenis), str(rasa), float(jumlah))))
 
-                # Cek produk langsung dari DB
-                fresh_check = sqlite3.connect(DB_PATH, check_same_thread=False)
+                fresh_check = get_db()
                 cek_p = fresh_check.execute("SELECT id FROM produk WHERE nama = ?", (nama_produk,)).fetchone()
                 fresh_check.close()
 
@@ -589,16 +574,38 @@ elif menu == "🏭 Produksi":
                     st.success(f"✅ Produksi berhasil! {hasil_produk} bungkus {nama_produk} siap dijual.")
                     st.balloons()
 
+    # ── Riwayat Produksi + Hapus ──────────────────────────
     with tab2:
-        riwayat = pd.read_sql("""
-            SELECT tanggal as 'Tanggal', jenis as 'Jenis', rasa as 'Rasa',
-                   jumlah as 'Pisang (kg)', CAST(jumlah*10 AS INT) as 'Hasil (bungkus)'
+        riwayat_prod = db_read("""
+            SELECT id, tanggal, jenis, rasa, jumlah,
+                   CAST(jumlah*10 AS INT) as hasil
             FROM produksi ORDER BY id DESC
-        """, conn)
-        if riwayat.empty:
+        """)
+
+        if riwayat_prod.empty:
             st.info("Belum ada riwayat produksi")
         else:
-            st.dataframe(riwayat, use_container_width=True, hide_index=True)
+            tampil = riwayat_prod[["tanggal","jenis","rasa","jumlah","hasil"]].copy()
+            tampil.columns = ["Tanggal","Jenis","Rasa","Pisang (kg)","Hasil (bungkus)"]
+            st.dataframe(tampil, use_container_width=True, hide_index=True)
+
+            st.markdown("---")
+            st.markdown("#### 🗑️ Hapus Riwayat Produksi")
+            col1, col2 = st.columns([3, 1])
+            with col1:
+                pilihan_prod = riwayat_prod.apply(
+                    lambda r: f"[{r['id']}] {r['tanggal']} — {r['jenis']} {r['rasa']} ({int(r['jumlah'])} kg)",
+                    axis=1
+                ).tolist()
+                hapus_prod = st.selectbox("Pilih data yang ingin dihapus", pilihan_prod, key="hapus_produksi")
+            with col2:
+                st.markdown("<br>", unsafe_allow_html=True)
+                if st.button("🗑️ Hapus", key="btn_hapus_produksi", use_container_width=True):
+                    id_hapus = int(hapus_prod.split("]")[0].replace("[", ""))
+                    ok = db_write([("DELETE FROM produksi WHERE id = ?", (id_hapus,))])
+                    if ok:
+                        st.success("✅ Data produksi dihapus!")
+                        st.rerun()
 
 # =====================================================
 # PRODUK JADI
@@ -606,12 +613,11 @@ elif menu == "🏭 Produksi":
 elif menu == "📦 Produk Jadi":
     st.markdown("## 📦 Produk Jadi")
 
-    produk = pd.read_sql("SELECT * FROM produk", conn)
+    produk = db_read("SELECT * FROM produk")
 
     if produk.empty:
         st.info("Belum ada produk. Lakukan produksi terlebih dahulu.")
     else:
-        # Cards per produk
         cols = st.columns(len(produk) if len(produk) <= 3 else 3)
         for i, (_, row) in enumerate(produk.iterrows()):
             with cols[i % 3]:
@@ -641,7 +647,6 @@ elif menu == "📦 Produk Jadi":
 
         st.divider()
         st.markdown("### 📋 Tabel Produk")
-
         tabel = produk[["nama", "jenis", "rasa", "stok", "harga"]].copy()
         tabel.columns = ["Nama Produk", "Jenis", "Rasa", "Stok (bungkus)", "Harga (Rp)"]
         tabel["Harga (Rp)"] = pd.to_numeric(tabel["Harga (Rp)"], errors="coerce").fillna(0).apply(lambda x: f"Rp {x:,.0f}")
@@ -671,7 +676,7 @@ elif menu == "🛒 Penjualan":
     tab1, tab2 = st.tabs(["🛍️ Catat Penjualan", "📋 Riwayat Penjualan"])
 
     with tab1:
-        produk = pd.read_sql("SELECT * FROM produk", conn)
+        produk = db_read("SELECT * FROM produk")
 
         if produk.empty:
             st.warning("⚠️ Belum ada produk. Lakukan produksi terlebih dahulu.")
@@ -679,12 +684,11 @@ elif menu == "🛒 Penjualan":
             col1, col2 = st.columns(2)
             with col1:
                 pilih = st.selectbox("Pilih Produk", produk["nama"])
-                row = produk[produk["nama"] == pilih].iloc[0]
+                row   = produk[produk["nama"] == pilih].iloc[0]
             with col2:
                 qty = st.number_input("Jumlah (bungkus)", min_value=1, max_value=int(row["stok"]))
 
             total = int(qty) * int(row["harga"])
-
             st.markdown(f"""
             <div style='background:#FFF4E0; border-radius:12px; padding:16px 20px;
                         border:1px solid #F5D08A; margin:16px 0;'>
@@ -709,7 +713,6 @@ elif menu == "🛒 Penjualan":
                 if qty > row["stok"]:
                     st.error("❌ Stok tidak mencukupi!")
                 else:
-                    # Buka koneksi baru khusus untuk insert agar tidak ada masalah cache/state
                     conn_insert = sqlite3.connect(DB_PATH, check_same_thread=False)
                     try:
                         harga_db = conn_insert.execute(
@@ -726,7 +729,6 @@ elif menu == "🛒 Penjualan":
                             (int(qty), str(pilih))
                         )
                         conn_insert.commit()
-                        # Reset koneksi utama agar read fresh
                         st.session_state.conn = sqlite3.connect(DB_PATH, check_same_thread=False)
                         st.success(f"✅ Penjualan {int(qty)} bungkus {pilih} berhasil! {format_rp(total_bersih)}")
                         st.balloons()
@@ -735,19 +737,44 @@ elif menu == "🛒 Penjualan":
                     finally:
                         conn_insert.close()
 
+    # ── Riwayat Penjualan + Hapus ─────────────────────────
     with tab2:
-        penjualan = pd.read_sql("""
-            SELECT tanggal as 'Tanggal', produk as 'Produk',
-                   qty as 'Qty', total as 'Total (Rp)'
+        penjualan = db_read("""
+            SELECT id, tanggal, produk, qty, total
             FROM penjualan ORDER BY id DESC LIMIT 100
-        """, conn)
+        """)
 
         if penjualan.empty:
             st.info("Belum ada riwayat penjualan")
         else:
-            penjualan["Total (Rp)"] = pd.to_numeric(penjualan["Total (Rp)"], errors="coerce").fillna(0)
-            penjualan["Total (Rp)"] = penjualan["Total (Rp)"].apply(lambda x: f"Rp {x:,.0f}")
-            st.dataframe(penjualan, use_container_width=True, hide_index=True)
+            tampil = penjualan[["tanggal","produk","qty","total"]].copy()
+            tampil.columns = ["Tanggal","Produk","Qty","Total (Rp)"]
+            tampil["Total (Rp)"] = pd.to_numeric(tampil["Total (Rp)"], errors="coerce").fillna(0).apply(lambda x: f"Rp {x:,.0f}")
+            st.dataframe(tampil, use_container_width=True, hide_index=True)
+
+            st.markdown("---")
+            st.markdown("#### 🗑️ Hapus Riwayat Penjualan")
+            st.caption("⚠️ Menghapus data penjualan akan otomatis mengembalikan stok produk.")
+            col1, col2 = st.columns([3, 1])
+            with col1:
+                pilihan_jual = penjualan.apply(
+                    lambda r: f"[{r['id']}] {r['tanggal']} — {r['produk']} x{int(r['qty'])} ({format_rp(r['total'])})",
+                    axis=1
+                ).tolist()
+                hapus_jual = st.selectbox("Pilih data yang ingin dihapus", pilihan_jual, key="hapus_penjualan")
+            with col2:
+                st.markdown("<br>", unsafe_allow_html=True)
+                if st.button("🗑️ Hapus", key="btn_hapus_penjualan", use_container_width=True):
+                    id_hapus = int(hapus_jual.split("]")[0].replace("[", ""))
+                    baris    = penjualan[penjualan["id"] == id_hapus].iloc[0]
+                    ok = db_write([
+                        ("UPDATE produk SET stok = stok + ? WHERE nama = ?",
+                         (int(baris["qty"]), str(baris["produk"]))),
+                        ("DELETE FROM penjualan WHERE id = ?", (id_hapus,))
+                    ])
+                    if ok:
+                        st.success("✅ Data penjualan dihapus & stok dikembalikan!")
+                        st.rerun()
 
 # =====================================================
 # PENGELUARAN
@@ -761,9 +788,9 @@ elif menu == "💸 Pengeluaran":
         col1, col2 = st.columns(2)
         with col1:
             nama_keluar = st.text_input("Keterangan", placeholder="cth: Beli minyak goreng")
-            nominal = st.number_input("Nominal (Rp)", min_value=0, step=1000)
+            nominal     = st.number_input("Nominal (Rp)", min_value=0, step=1000)
         with col2:
-            kategori = st.selectbox("Kategori", [
+            kategori       = st.selectbox("Kategori", [
                 "Bahan Baku", "Operasional", "Gaji", "Transportasi",
                 "Pemasaran", "Peralatan", "Lainnya"
             ])
@@ -778,30 +805,49 @@ elif menu == "💸 Pengeluaran":
             else:
                 st.error("Keterangan dan nominal harus diisi!")
 
+    # ── Riwayat Pengeluaran + Hapus ───────────────────────
     with tab2:
-        data_keluar = pd.read_sql("""
-            SELECT tanggal as 'Tanggal', nama as 'Keterangan',
-                   kategori as 'Kategori', nominal as 'Nominal (Rp)'
+        data_keluar = db_read("""
+            SELECT id, tanggal, nama, kategori, nominal
             FROM pengeluaran ORDER BY id DESC
-        """, conn)
+        """)
 
         if data_keluar.empty:
             st.info("Belum ada data pengeluaran")
         else:
-            # Summary per kategori
             st.markdown("#### 📊 Ringkasan per Kategori")
-            summary = pd.read_sql("""
+            summary = db_read("""
                 SELECT kategori as 'Kategori',
                        COUNT(*) as 'Jumlah Transaksi',
                        SUM(nominal) as 'Total'
                 FROM pengeluaran GROUP BY kategori ORDER BY Total DESC
-            """, conn)
+            """)
             summary["Total"] = summary["Total"].apply(format_rp)
             st.dataframe(summary, use_container_width=True, hide_index=True)
 
             st.divider()
-            data_keluar["Nominal (Rp)"] = pd.to_numeric(data_keluar["Nominal (Rp)"], errors="coerce").fillna(0).apply(lambda x: f"Rp {x:,.0f}")
-            st.dataframe(data_keluar, use_container_width=True, hide_index=True)
+            tampil_k = data_keluar[["tanggal","nama","kategori","nominal"]].copy()
+            tampil_k.columns = ["Tanggal","Keterangan","Kategori","Nominal (Rp)"]
+            tampil_k["Nominal (Rp)"] = pd.to_numeric(tampil_k["Nominal (Rp)"], errors="coerce").fillna(0).apply(lambda x: f"Rp {x:,.0f}")
+            st.dataframe(tampil_k, use_container_width=True, hide_index=True)
+
+            st.markdown("---")
+            st.markdown("#### 🗑️ Hapus Riwayat Pengeluaran")
+            col1, col2 = st.columns([3, 1])
+            with col1:
+                pilihan_keluar = data_keluar.apply(
+                    lambda r: f"[{r['id']}] {r['tanggal']} — {r['nama']} ({format_rp(r['nominal'])})",
+                    axis=1
+                ).tolist()
+                hapus_keluar = st.selectbox("Pilih data yang ingin dihapus", pilihan_keluar, key="hapus_pengeluaran")
+            with col2:
+                st.markdown("<br>", unsafe_allow_html=True)
+                if st.button("🗑️ Hapus", key="btn_hapus_pengeluaran", use_container_width=True):
+                    id_hapus = int(hapus_keluar.split("]")[0].replace("[", ""))
+                    ok = db_write([("DELETE FROM pengeluaran WHERE id = ?", (id_hapus,))])
+                    if ok:
+                        st.success("✅ Data pengeluaran dihapus!")
+                        st.rerun()
 
 # =====================================================
 # LAPORAN BULANAN
@@ -820,22 +866,19 @@ elif menu == "📊 Laporan Bulanan":
                                     index=now.month - 1,
                                     format_func=lambda x: bulan_names[x-1])
 
-    prefix = f"{tahun_pilih}-{bulan_pilih:02d}"
+    prefix     = f"{tahun_pilih}-{bulan_pilih:02d}"
     nama_bulan = f"{bulan_names[bulan_pilih-1]} {tahun_pilih}"
 
     st.markdown(f"### 📅 Laporan {nama_bulan}")
     st.divider()
 
-    penjualan_b = pd.read_sql(
-        f"SELECT * FROM penjualan WHERE tanggal LIKE '{prefix}%'", conn)
-    pengeluaran_b = pd.read_sql(
-        f"SELECT * FROM pengeluaran WHERE tanggal LIKE '{prefix}%'", conn)
-    produksi_b = pd.read_sql(
-        f"SELECT * FROM produksi WHERE tanggal LIKE '{prefix}%'", conn)
+    penjualan_b   = db_read(f"SELECT * FROM penjualan WHERE tanggal LIKE '{prefix}%'")
+    pengeluaran_b = db_read(f"SELECT * FROM pengeluaran WHERE tanggal LIKE '{prefix}%'")
+    produksi_b    = db_read(f"SELECT * FROM produksi WHERE tanggal LIKE '{prefix}%'")
 
     if not penjualan_b.empty:
         penjualan_b["total"] = pd.to_numeric(penjualan_b["total"], errors="coerce").fillna(0)
-        omzet_b = penjualan_b["total"].sum()
+        omzet_b       = penjualan_b["total"].sum()
         total_terjual = penjualan_b["qty"].sum()
     else:
         omzet_b = total_terjual = 0
@@ -846,10 +889,9 @@ elif menu == "📊 Laporan Bulanan":
     else:
         keluar_b = 0
 
-    laba_b = omzet_b - keluar_b
+    laba_b           = omzet_b - keluar_b
     total_produksi_b = produksi_b["jumlah"].sum() if not produksi_b.empty else 0
 
-    # KPI
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("💰 Omzet", format_rp(omzet_b))
     c2.metric("💸 Pengeluaran", format_rp(keluar_b))
@@ -858,7 +900,6 @@ elif menu == "📊 Laporan Bulanan":
     c4.metric("📦 Terjual", f"{int(total_terjual)} bungkus")
 
     st.markdown("<br>", unsafe_allow_html=True)
-
     col_l, col_r = st.columns(2)
 
     with col_l:
@@ -881,11 +922,10 @@ elif menu == "📊 Laporan Bulanan":
 
     st.divider()
 
-    # Detail tabel
     st.markdown("#### 📋 Detail Penjualan")
     if not penjualan_b.empty:
-        tampil = penjualan_b[["tanggal", "produk", "qty", "total"]].copy()
-        tampil.columns = ["Tanggal", "Produk", "Qty", "Total"]
+        tampil = penjualan_b[["tanggal","produk","qty","total"]].copy()
+        tampil.columns = ["Tanggal","Produk","Qty","Total"]
         tampil["Total"] = tampil["Total"].apply(format_rp)
         st.dataframe(tampil, use_container_width=True, hide_index=True)
     else:
@@ -893,14 +933,13 @@ elif menu == "📊 Laporan Bulanan":
 
     st.markdown("#### 📋 Detail Pengeluaran")
     if not pengeluaran_b.empty:
-        tampil_k = pengeluaran_b[["tanggal", "nama", "kategori", "nominal"]].copy()
-        tampil_k.columns = ["Tanggal", "Keterangan", "Kategori", "Nominal"]
+        tampil_k = pengeluaran_b[["tanggal","nama","kategori","nominal"]].copy()
+        tampil_k.columns = ["Tanggal","Keterangan","Kategori","Nominal"]
         tampil_k["Nominal"] = tampil_k["Nominal"].apply(format_rp)
         st.dataframe(tampil_k, use_container_width=True, hide_index=True)
     else:
         st.info("Tidak ada data pengeluaran")
 
-    # Ringkasan teks
     st.divider()
     st.markdown("#### 📝 Ringkasan Otomatis")
     status = "UNTUNG 📈" if laba_b >= 0 else "RUGI 📉"
