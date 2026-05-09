@@ -748,7 +748,7 @@ elif menu == "📦 Produk Jadi":
         st.markdown("### ✏️ Update Harga Produk")
         col1, col2, col3 = st.columns(3)
         with col1:
-            produk_pilih = st.selectbox("Produk", produk["nama"])
+            produk_pilih = st.selectbox("Produk", produk["nama"], key="update_harga_produk")
         with col2:
             harga_baru = st.number_input("Harga Baru (Rp)", min_value=1000, step=500)
         with col3:
@@ -757,6 +757,20 @@ elif menu == "📦 Produk Jadi":
                 ok = db_write([("UPDATE produk SET harga = ? WHERE nama = ?", (int(harga_baru), str(produk_pilih)))])
                 if ok:
                     st.success(f"✅ Harga {produk_pilih} diperbarui!")
+                    st.rerun()
+
+        st.divider()
+        st.markdown("### 🗑️ Hapus Produk")
+        st.caption("⚠️ Menghapus produk akan menghapus data produk dari daftar secara permanen.")
+        col1, col2 = st.columns([2, 1])
+        with col1:
+            produk_hapus = st.selectbox("Pilih produk yang ingin dihapus", produk["nama"], key="hapus_produk")
+        with col2:
+            st.markdown("<br>", unsafe_allow_html=True)
+            if st.button("🗑️ Hapus Produk", use_container_width=True, key="btn_hapus_produk"):
+                ok = db_write([("DELETE FROM produk WHERE nama = ?", (str(produk_hapus),))])
+                if ok:
+                    st.success(f"✅ Produk '{produk_hapus}' berhasil dihapus!")
                     st.rerun()
 
 # =====================================================
