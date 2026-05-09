@@ -361,6 +361,10 @@ with st.sidebar:
 # HELPERS (non-DB)
 # =====================================================
 def format_rp(angka):
+    try:
+        angka = float(angka)
+    except (TypeError, ValueError):
+        angka = 0.0
     return f"Rp {angka:,.0f}".replace(",", ".")
 
 def get_bulan_list():
@@ -476,8 +480,12 @@ elif menu == "🧪 Bahan Baku":
                     st.error("Nama bahan tidak boleh kosong!")
 
     with tab1:
-        data = db_read("SELECT id, nama as 'Nama Bahan', stok as 'Stok', satuan as 'Satuan' FROM bahan")
-        st.dataframe(data, use_container_width=True, hide_index=True)
+        # FIX: pakai nomor urut manual, bukan id dari DB
+        data_raw = db_read("SELECT nama, stok, satuan FROM bahan")
+        if not data_raw.empty:
+            data_raw.insert(0, "No", range(1, len(data_raw) + 1))
+            data_raw.columns = ["No", "Nama Bahan", "Stok", "Satuan"]
+        st.dataframe(data_raw, use_container_width=True, hide_index=True)
 
         st.markdown("---")
         st.markdown("#### 🗑️ Hapus Bahan")
@@ -511,8 +519,20 @@ elif menu == "🏭 Produksi":
             rasa  = st.selectbox("Rasa", ["Manis", "Asin"])
         with col2:
             jumlah = st.number_input("Jumlah Pisang (kg)", min_value=1.0, step=0.5)
+            # FIX: input konversi hasil produksi per batch
+            hasil_per_kg = st.number_input(
+                "🎯 Hasil per kg (bungkus/kg)",
+                min_value=1,
+                max_value=50,
+                value=10,
+                step=1,
+                help="Ubah angka ini untuk menyesuaikan hasil produksi. Default: 10 bungkus per kg pisang."
+            )
 
-         # ── Atur Kebutuhan Bahan ──────────────────────────
+        # Estimasi hasil berdasarkan input pengguna
+        estimasi_hasil = int(jumlah * hasil_per_kg)
+
+        # ── Atur Kebutuhan Bahan ──────────────────────────
         st.markdown("#### ⚙️ Atur Kebutuhan Bahan")
         st.caption("Nilai default dihitung otomatis dari jumlah pisang. Kamu bisa ubah sesuai kebutuhan.")
 
@@ -572,7 +592,8 @@ elif menu == "🏭 Produksi":
             icon = "✅" if ok else "❌"
             st.markdown(f"- {icon} **{nb}**: butuh **{jml} {sat}** | stok: {tersedia} {sat}")
 
-        st.markdown(f"#### 🎯 Hasil Produksi: ~**{int(jumlah * 10)} bungkus**")
+        # FIX: tampilkan estimasi hasil sesuai input pengguna
+        st.markdown(f"#### 🎯 Hasil Produksi: ~**{estimasi_hasil} bungkus** ({hasil_per_kg} bungkus/kg × {jumlah} kg)")
 
         # ── Tombol Mulai Produksi ─────────────────────────
         if st.button("🚀 Mulai Produksi", use_container_width=False):
@@ -593,7 +614,8 @@ elif menu == "🏭 Produksi":
 
             if cukup:
                 nama_produk  = f"Keripik {jenis} {rasa}"
-                hasil_produk = int(jumlah * 10)
+                # FIX: gunakan hasil_per_kg dari input pengguna
+                hasil_produk = estimasi_hasil
                 harga        = 15000 if jenis == "Pisang Raja" else 12000
                 tanggal_prod = datetime.now().strftime("%Y-%m-%d")
 
@@ -632,9 +654,8 @@ elif menu == "🏭 Produksi":
                     st.success(f"✅ Produksi berhasil! {hasil_produk} bungkus {nama_produk} siap dijual.")
                     st.balloons()
 
-        # ── Riwayat Produksi ──────────────────────────
+    # ── Riwayat Produksi ──────────────────────────
     with tab2:
-
         produksi = db_read("""
             SELECT id, tanggal, jenis, rasa, jumlah
             FROM produksi
@@ -643,32 +664,20 @@ elif menu == "🏭 Produksi":
 
         if produksi.empty:
             st.info("Belum ada data produksi")
-
         else:
-
             tampil = produksi.copy()
+            # FIX: nomor urut manual
+            tampil.insert(0, "No", range(1, len(tampil) + 1))
+            tampil = tampil.drop(columns=["id"])
+            tampil.columns = ["No", "Tanggal", "Jenis Pisang", "Rasa", "Jumlah (kg)"]
 
-            tampil.columns = [
-                "ID",
-                "Tanggal",
-                "Jenis Pisang",
-                "Rasa",
-                "Jumlah (kg)"
-            ]
-
-            st.dataframe(
-                tampil,
-                use_container_width=True,
-                hide_index=True
-            )
+            st.dataframe(tampil, use_container_width=True, hide_index=True)
 
             st.markdown("---")
             st.markdown("#### 🗑️ Hapus Riwayat Produksi")
 
             col1, col2 = st.columns([3,1])
-
             with col1:
-
                 pilihan = produksi.apply(
                     lambda r:
                     f"[{r['id']}] "
@@ -679,31 +688,13 @@ elif menu == "🏭 Produksi":
                     axis=1
                 ).tolist()
 
-                pilih_hapus = st.selectbox(
-                    "Pilih data produksi",
-                    pilihan
-                )
+                pilih_hapus = st.selectbox("Pilih data produksi", pilihan)
 
             with col2:
-
                 st.markdown("<br>", unsafe_allow_html=True)
-
-                if st.button(
-                    "🗑️ Hapus Produksi",
-                    use_container_width=True
-                ):
-
-                    id_hapus = int(
-                        pilih_hapus.split("]")[0].replace("[","")
-                    )
-
-                    ok = db_write([
-                        (
-                            "DELETE FROM produksi WHERE id = ?",
-                            (id_hapus,)
-                        )
-                    ])
-
+                if st.button("🗑️ Hapus Produksi", use_container_width=True):
+                    id_hapus = int(pilih_hapus.split("]")[0].replace("[",""))
+                    ok = db_write([("DELETE FROM produksi WHERE id = ?", (id_hapus,))])
                     if ok:
                         st.success("✅ Data produksi dihapus!")
                         st.rerun()
@@ -850,7 +841,8 @@ elif menu == "🛒 Penjualan":
         else:
             tampil = penjualan[["tanggal","produk","qty","total"]].copy()
             tampil.columns = ["Tanggal","Produk","Qty","Total (Rp)"]
-            tampil["Total (Rp)"] = pd.to_numeric(tampil["Total (Rp)"], errors="coerce").fillna(0).apply(lambda x: f"Rp {x:,.0f}")
+            # FIX: pastikan total numeric dulu sebelum format_rp
+            tampil["Total (Rp)"] = pd.to_numeric(tampil["Total (Rp)"], errors="coerce").fillna(0).apply(format_rp)
             st.dataframe(tampil, use_container_width=True, hide_index=True)
 
             st.markdown("---")
@@ -858,6 +850,8 @@ elif menu == "🛒 Penjualan":
             st.caption("⚠️ Menghapus data penjualan akan otomatis mengembalikan stok produk.")
             col1, col2 = st.columns([3, 1])
             with col1:
+                # FIX: pastikan total sudah numeric sebelum format_rp di lambda
+                penjualan["total"] = pd.to_numeric(penjualan["total"], errors="coerce").fillna(0)
                 pilihan_jual = penjualan.apply(
                     lambda r: f"[{r['id']}] {r['tanggal']} — {r['produk']} x{int(r['qty'])} ({format_rp(r['total'])})",
                     axis=1
@@ -929,7 +923,7 @@ elif menu == "💸 Pengeluaran":
             st.divider()
             tampil_k = data_keluar[["tanggal","nama","kategori","nominal"]].copy()
             tampil_k.columns = ["Tanggal","Keterangan","Kategori","Nominal (Rp)"]
-            tampil_k["Nominal (Rp)"] = pd.to_numeric(tampil_k["Nominal (Rp)"], errors="coerce").fillna(0).apply(lambda x: f"Rp {x:,.0f}")
+            tampil_k["Nominal (Rp)"] = pd.to_numeric(tampil_k["Nominal (Rp)"], errors="coerce").fillna(0).apply(format_rp)
             st.dataframe(tampil_k, use_container_width=True, hide_index=True)
 
             st.markdown("---")
@@ -1059,17 +1053,13 @@ elif menu == "📊 Laporan Bulanan":
     </div>
     """, unsafe_allow_html=True)
 
-    # ==========================================
-    # FITUR EKSPOR DATA (UNTUK STREAMLIT CLOUD)
-    # ==========================================
     st.divider()
     st.markdown("### 📥 Ekspor Laporan Bulanan")
-    
+
     col_dl1, col_dl2 = st.columns(2)
-    
+
     with col_dl1:
         if not penjualan_b.empty:
-            # Mengubah dataframe pandas menjadi format CSV
             csv_penjualan = tampil.to_csv(index=False).encode('utf-8')
             st.download_button(
                 label="📥 Unduh Data Penjualan (CSV)",
@@ -1089,7 +1079,6 @@ elif menu == "📊 Laporan Bulanan":
 
     with col_dl2:
         if not pengeluaran_b.empty:
-            # Mengubah dataframe pandas menjadi format CSV
             csv_pengeluaran = tampil_k.to_csv(index=False).encode('utf-8')
             st.download_button(
                 label="📥 Unduh Data Pengeluaran (CSV)",
