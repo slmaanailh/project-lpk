@@ -489,20 +489,52 @@ elif menu == "🧪 Bahan Baku":
                     st.error("Nama bahan tidak boleh kosong!")
 
     with tab1:
-        # FIX: pakai nomor urut manual, bukan id dari DB
-        data_raw = db_read("SELECT nama, stok, satuan FROM bahan")
-        if not data_raw.empty:
+        all_bahan = db_read("SELECT id, nama, stok, satuan FROM bahan")
+
+        if not all_bahan.empty:
+            data_raw = all_bahan[["nama", "stok", "satuan"]].copy()
             data_raw.insert(0, "No", range(1, len(data_raw) + 1))
             data_raw.columns = ["No", "Nama Bahan", "Stok", "Satuan"]
-        st.dataframe(data_raw, use_container_width=True, hide_index=True)
+            st.dataframe(data_raw, use_container_width=True, hide_index=True)
+        else:
+            st.info("Belum ada data bahan baku.")
+
+        st.markdown("---")
+        st.markdown("#### ✏️ Edit Bahan")
+
+        if not all_bahan.empty:
+            pilih_edit = st.selectbox("Pilih bahan yang ingin diedit", all_bahan["nama"], key="pilih_edit_bahan")
+            baris_edit = all_bahan[all_bahan["nama"] == pilih_edit].iloc[0]
+
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                nama_edit = st.text_input("Nama Bahan", value=str(baris_edit["nama"]), key="edit_nama")
+            with col2:
+                stok_edit = st.number_input("Stok", min_value=0.0, value=float(baris_edit["stok"]), step=0.5, key="edit_stok")
+            with col3:
+                satuan_list = ["kg", "liter", "pcs", "tabung", "gram", "ml"]
+                satuan_default = str(baris_edit["satuan"])
+                satuan_idx = satuan_list.index(satuan_default) if satuan_default in satuan_list else 0
+                satuan_edit = st.selectbox("Satuan", satuan_list, index=satuan_idx, key="edit_satuan")
+
+            if st.button("💾 Simpan Perubahan", use_container_width=False, key="btn_simpan_edit"):
+                if nama_edit.strip():
+                    ok = db_write([(
+                        "UPDATE bahan SET nama = ?, stok = ?, satuan = ? WHERE id = ?",
+                        (str(nama_edit), float(stok_edit), str(satuan_edit), int(baris_edit["id"]))
+                    )])
+                    if ok:
+                        st.success(f"✅ Data '{pilih_edit}' berhasil diperbarui!")
+                        st.rerun()
+                else:
+                    st.error("Nama bahan tidak boleh kosong!")
 
         st.markdown("---")
         st.markdown("#### 🗑️ Hapus Bahan")
         col1, col2 = st.columns([2, 1])
         with col1:
-            all_bahan = db_read("SELECT * FROM bahan")
             if not all_bahan.empty:
-                pilih_hapus = st.selectbox("Pilih bahan untuk dihapus", all_bahan["nama"])
+                pilih_hapus = st.selectbox("Pilih bahan untuk dihapus", all_bahan["nama"], key="pilih_hapus_bahan")
         with col2:
             st.markdown("<br>", unsafe_allow_html=True)
             if not all_bahan.empty and st.button("🗑️ Hapus", use_container_width=True):
