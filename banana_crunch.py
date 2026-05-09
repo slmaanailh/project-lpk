@@ -276,10 +276,19 @@ if cek["jumlah"][0] == 0:
         ("Minyak Goreng", 20, "liter"),
         ("Gula", 10, "kg"),
         ("Garam", 10, "kg"),
-        ("Gas LPG", 10, "tabung")
+        ("Gas LPG", 10, "tabung"),
+        ("Plastik", 500, "pcs"),
+        ("Label", 500, "pcs")
     ]
     c.executemany("INSERT INTO bahan(nama, stok, satuan) VALUES(?,?,?)", data_awal)
     conn.commit()
+
+# Tambah Plastik & Label jika belum ada di DB (untuk user yang sudah punya data)
+for nama_tambahan, satuan_tambahan in [("Plastik", "pcs"), ("Label", "pcs")]:
+    cek_bahan = conn.execute("SELECT id FROM bahan WHERE nama = ?", (nama_tambahan,)).fetchone()
+    if cek_bahan is None:
+        conn.execute("INSERT INTO bahan(nama, stok, satuan) VALUES(?,?,?)", (nama_tambahan, 500, satuan_tambahan))
+conn.commit()
 
 # =====================================================
 # FIX DATA LAMA
@@ -583,6 +592,9 @@ elif menu == "🏭 Produksi":
             kebutuhan_list.append(("Gula", round(jumlah * 0.05, 2), "kg"))
         else:
             kebutuhan_list.append(("Garam", round(jumlah * 0.03, 2), "kg"))
+        # Plastik & Label = 1 per bungkus hasil produksi
+        kebutuhan_list.append(("Plastik", estimasi_hasil, "pcs"))
+        kebutuhan_list.append(("Label",   estimasi_hasil, "pcs"))
 
         st.markdown("#### 🧮 Estimasi Kebutuhan Bahan")
         for nb, jml, sat in kebutuhan_list:
@@ -602,6 +614,8 @@ elif menu == "🏭 Produksi":
                 ("Minyak Goreng", kebutuhan_minyak),
                 ("Gas LPG",       kebutuhan_gas),
                 (nama_bumbu,      kebutuhan_bumbu),
+                ("Plastik",       estimasi_hasil),
+                ("Label",         estimasi_hasil),
             ]
 
             cukup = True
